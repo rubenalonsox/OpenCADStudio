@@ -17,6 +17,15 @@ pub enum HatchPanelMsg {
     /// 0 solid, 1 gradient, 2 pattern, 3 user defined.
     Kind(u8),
     Pattern(String),
+    /// Opens or closes the pattern picker (the thumbnail grid).
+    PatternPickerToggle,
+    PatternSearch(String),
+    /// The card under the pointer, an index into the filtered patterns.
+    PatternFocus(usize),
+    /// Moves the focused card: ±1 across a row, ±2 down a column.
+    PatternNavigate(i8),
+    /// Enter in the picker's search: takes the focused card.
+    PatternConfirm,
     /// A gradient's choice label (see `GradientKind::choice_label`).
     Gradient(String),
     Angle(String),
@@ -59,7 +68,20 @@ pub struct Drafts {
     pub origin_y: Option<String>,
     pub gap: Option<String>,
     pub transparency: Option<String>,
+    /// The pattern picker, while it is open.
+    pub pattern_picker: Option<PatternPicker>,
 }
+
+/// The open pattern picker: what is typed in its search and the card the
+/// keyboard is on.
+#[derive(Debug, Clone, Default)]
+pub struct PatternPicker {
+    pub search: String,
+    pub focus: usize,
+}
+
+/// The pattern picker's search field, focused when it opens.
+pub const PATTERN_SEARCH_ID: &str = "hatch-panel-pattern-search";
 
 pub const WIDTH: f32 = 290.0;
 
@@ -161,6 +183,52 @@ fn list<'a>(
     )
 }
 
+/// The pattern row: a head showing the current name that opens the
+/// thumbnail grid below it.
+fn pattern_row<'a>(
+    label: String,
+    current: &str,
+    picker: Option<&'a PatternPicker>,
+) -> Element<'a, Message> {
+    let toggle = Message::HatchPanel(HatchPanelMsg::PatternPickerToggle);
+    let head =
+        crate::ui::properties::hatch_pattern_picker_head(current, picker.is_some(), toggle.clone());
+    let control = match picker {
+        None => head,
+        Some(picker) => {
+            let popup = crate::ui::properties::hatch_pattern_picker_content(
+                &picker.search,
+                picker.focus,
+                current,
+                crate::ui::properties::PatternPickerMessages {
+                    search_id: PATTERN_SEARCH_ID,
+                    on_search: |search| Message::HatchPanel(HatchPanelMsg::PatternSearch(search)),
+                    on_confirm: Message::HatchPanel(HatchPanelMsg::PatternConfirm),
+                    on_focus: |index| Message::HatchPanel(HatchPanelMsg::PatternFocus(index)),
+                    on_changed: |name| Message::HatchPanel(HatchPanelMsg::Pattern(name)),
+                },
+            );
+            crate::ui::color_select::drop_down_below(
+                head,
+                popup,
+                Some(Length::Fixed(crate::ui::properties::PATTERN_PICKER_W)),
+                Length::Fixed(crate::ui::properties::PATTERN_PICKER_H),
+                toggle,
+            )
+        }
+    };
+    row![
+        text(label)
+            .size(11)
+            .style(crate::ui::style::common::muted_style)
+            .width(LABEL_WIDTH),
+        control,
+    ]
+    .spacing(8)
+    .align_y(iced::Center)
+    .into()
+}
+
 /// A swatch of the fill as it is set.
 fn preview<'a>(settings: &HatchSettings) -> Element<'a, Message> {
     let swatch = match &settings.fill {
@@ -190,7 +258,7 @@ fn preview<'a>(settings: &HatchSettings) -> Element<'a, Message> {
 
 pub fn view<'a>(
     settings: HatchSettings,
-    drafts: &Drafts,
+    drafts: &'a Drafts,
     layers: Vec<String>,
 ) -> Element<'a, Message> {
     let tr = |key: &str| crate::i18n::loader().get_attr("hatch-panel", key);
@@ -205,15 +273,10 @@ pub fn view<'a>(
     let mut fill = column![kind].spacing(7);
     match &settings.fill {
         HatchFill::Pattern(name) => {
-            let patterns: Vec<String> = crate::scene::model::hatch_patterns::catalog()
-                .iter()
-                .map(|entry| entry.name.clone())
-                .collect();
-            fill = fill.push(list(
+            fill = fill.push(pattern_row(
                 tr("pattern"),
-                patterns,
-                name.clone(),
-                HatchPanelMsg::Pattern,
+                name,
+                drafts.pattern_picker.as_ref(),
             ));
         }
         HatchFill::Gradient(gradient, invert) => {

@@ -4164,6 +4164,7 @@ impl OpenCADStudio {
             .properties
             .hatch_pattern_picker_open
             || self.graphic_attributes.hatch_editor.is_some()
+            || self.hatch_panel_picker_open()
         {
             event::listen_with(hatch_pattern_key_event)
         } else {

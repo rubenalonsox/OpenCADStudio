@@ -29,8 +29,8 @@ const ROW_H: f32 = crate::ui::style::kit_metrics::ROW_H;
 const QUICK_W: f32 = 260.0;
 const PATTERN_CARD_W: f32 = 158.0;
 const PATTERN_PREVIEW_H: f32 = 58.0;
-const PATTERN_PICKER_W: f32 = 348.0;
-const PATTERN_PICKER_H: f32 = 720.0;
+pub(crate) const PATTERN_PICKER_W: f32 = 348.0;
+pub(crate) const PATTERN_PICKER_H: f32 = 720.0;
 const LINETYPE_MENU_W: f32 = 220.0;
 use crate::app::Message;
 use crate::scene::model::object::{PropSection, PropValue};
@@ -258,6 +258,54 @@ pub(crate) fn filtered_hatch_patterns(
         .collect()
 }
 
+/// The closed face of a hatch pattern picker: the current name and an arrow,
+/// outlined in the accent colour while the picker is open.
+pub(crate) fn hatch_pattern_picker_head<'a>(
+    current: &str,
+    open: bool,
+    on_press: Message,
+) -> Element<'a, Message> {
+    button(
+        row![
+            text(crate::ui::text_util::elide(current, 16))
+                .size(ui_text::UI)
+                .line_height(crate::ui::style::text::line())
+                .width(Length::Fill),
+            if open {
+                crate::ui::icons::themed_arrow_up(ui_text::UI)
+            } else {
+                crate::ui::icons::themed_arrow_down(ui_text::UI)
+            },
+        ]
+        .align_y(iced::Center),
+    )
+    .on_press(on_press)
+    .style(move |theme: &Theme, status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(if hovered {
+                crate::ui::style::chrome::surface_raised(theme)
+            } else {
+                crate::ui::style::chrome::surface(theme)
+            })),
+            text_color: crate::ui::style::chrome::text(theme),
+            border: Border {
+                color: if open {
+                    crate::ui::style::chrome::accent(theme)
+                } else {
+                    crate::ui::style::chrome::border(theme)
+                },
+                width: crate::ui::style::kit_metrics::line(),
+                radius: 2.0.into(),
+            },
+            ..Default::default()
+        }
+    })
+    .padding([crate::ui::kit::FIELD_PAD_Y, 6.0])
+    .width(Length::Fill)
+    .into()
+}
+
 /// Messages of a hatch pattern picker; the Properties panel and the Graphic
 /// Attributes palette each route them to their own state.
 pub(crate) struct PatternPickerMessages {
@@ -271,7 +319,7 @@ pub(crate) struct PatternPickerMessages {
 pub(crate) fn hatch_pattern_picker_content<'a>(
     search_value: &'a str,
     focus: usize,
-    current: &'a str,
+    current: &str,
     messages: PatternPickerMessages,
 ) -> Element<'a, Message> {
     let PatternPickerMessages {
@@ -1970,47 +2018,15 @@ impl PropertiesPanel {
         label: &'a str,
         current: &'a str,
     ) -> Element<'a, Message> {
-        let head = button(
-            row![
-                text(crate::ui::text_util::elide(current, 16))
-                    .size(ui_text::UI)
-                    .line_height(crate::ui::style::text::line())
-                    .width(Length::Fill),
-                if self.hatch_pattern_picker_open && self.picker_here() {
-                    crate::ui::icons::themed_arrow_up(ui_text::UI)
-                } else {
-                    crate::ui::icons::themed_arrow_down(ui_text::UI)
-                },
-            ]
-            .align_y(iced::Center),
-        )
-        .on_press(Message::PropHatchPatternPickerToggle(current.to_string()))
-        .style(move |theme: &Theme, status| {
-            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(Background::Color(if hovered {
-                    crate::ui::style::chrome::surface_raised(theme)
-                } else {
-                    crate::ui::style::chrome::surface(theme)
-                })),
-                text_color: crate::ui::style::chrome::text(theme),
-                border: Border {
-                    color: if self.hatch_pattern_picker_open && self.picker_here() {
-                        crate::ui::style::chrome::accent(theme)
-                    } else {
-                        crate::ui::style::chrome::border(theme)
-                    },
-                    width: crate::ui::style::kit_metrics::line(),
-                    radius: 2.0.into(),
-                },
-                ..Default::default()
-            }
-        })
-        .padding([crate::ui::kit::FIELD_PAD_Y, 6.0])
-        .width(Length::Fill);
+        let open = self.hatch_pattern_picker_open && self.picker_here();
+        let head = hatch_pattern_picker_head(
+            current,
+            open,
+            Message::PropHatchPatternPickerToggle(current.to_string()),
+        );
 
-        if !(self.hatch_pattern_picker_open && self.picker_here()) {
-            return prop_row_widget(label, head.into());
+        if !open {
+            return prop_row_widget(label, head);
         }
 
         let popup = hatch_pattern_picker_content(
@@ -2029,7 +2045,7 @@ impl PropertiesPanel {
         prop_row_widget(
             label,
             crate::ui::color_select::drop_down_below(
-                head.into(),
+                head,
                 popup,
                 Some(Length::Fixed(PATTERN_PICKER_W)),
                 Length::Fixed(PATTERN_PICKER_H),

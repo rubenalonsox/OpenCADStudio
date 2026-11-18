@@ -135,6 +135,46 @@ fn the_type_list_switches_a_new_hatch_to_user_defined() {
     assert_eq!(kind(&app), 3, "Type is User defined");
 }
 
+fn pattern_name(app: &OpenCADStudio) -> Option<String> {
+    let settings = app.tabs[app.active_tab]
+        .active_cmd
+        .as_ref()
+        .and_then(|command| command.hatch_settings())?;
+    match settings.fill {
+        crate::modules::draw::draw::hatch::HatchFill::Pattern(name) => Some(name),
+        _ => None,
+    }
+}
+
+/// The Pattern row opens the thumbnail grid: typing narrows it, Enter takes
+/// the focused card and closes it, and Esc closes it without ending HATCH.
+#[test]
+fn the_pattern_picker_shows_thumbnails_and_picks_by_search() {
+    use crate::ui::window::hatch_panel::HatchPanelMsg as H;
+    let _guard = crate::headless_ui_lock();
+    let mut app = hatching();
+    let _ = app.update(Message::HatchPanel(H::Kind(2)));
+    let _ = app.update(Message::HatchPanel(H::PatternPickerToggle));
+    assert!(app.hatch_panel_picker_open());
+    {
+        let mut ui = Simulator::with_size(Default::default(), SIZE, app.view_main());
+        assert!(
+            ui.find("BRICK").is_ok(),
+            "the grid shows cards for the whole catalog"
+        );
+    }
+
+    let _ = app.update(Message::HatchPanel(H::PatternSearch("ansi32".into())));
+    let _ = app.update(Message::HatchPanel(H::PatternConfirm));
+    assert_eq!(pattern_name(&app).as_deref(), Some("ANSI32"));
+    assert!(!app.hatch_panel_picker_open(), "a pick closes the picker");
+
+    let _ = app.update(Message::HatchPanel(H::PatternPickerToggle));
+    let _ = app.update(Message::CommandEscape);
+    assert!(!app.hatch_panel_picker_open(), "Esc closes the picker");
+    assert!(pattern_name(&app).is_some(), "and HATCH keeps running");
+}
+
 /// A solid hatch over (0,0)–(10,10), selected, with HATCHEDIT started on it.
 fn editing_hatch() -> (OpenCADStudio, document::Handle) {
     use document::entities::{BoundaryEdge, BoundaryPath, Hatch, PolylineEdge};

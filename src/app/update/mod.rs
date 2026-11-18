@@ -4490,6 +4490,7 @@ impl OpenCADStudio {
                     .properties
                     .hatch_pattern_picker_open
                     || self.graphic_attributes.hatch_editor.is_some()
+                    || self.hatch_panel_picker_open()
                 {
                     return self.update(Message::PropHatchPatternNavigate(-2));
                 }
@@ -4524,6 +4525,7 @@ impl OpenCADStudio {
                     .properties
                     .hatch_pattern_picker_open
                     || self.graphic_attributes.hatch_editor.is_some()
+                    || self.hatch_panel_picker_open()
                 {
                     return self.update(Message::PropHatchPatternNavigate(2));
                 }
@@ -4898,6 +4900,12 @@ impl OpenCADStudio {
             Message::CommandFinalize => self.on_command_finalize(),
 
             Message::CommandEscape => {
+                // Esc in the Hatch panel's pattern picker closes the picker,
+                // not HATCH.
+                if self.hatch_panel_picker_open() {
+                    self.hatch_drafts.pattern_picker = None;
+                    return Task::none();
+                }
                 let panel = &mut self.tabs[self.active_tab].properties;
                 if panel.hatch_pattern_picker_open {
                     panel.hatch_pattern_picker_open = false;
@@ -9677,6 +9685,7 @@ impl OpenCADStudio {
                     .properties
                     .hatch_pattern_picker_open
                     || self.graphic_attributes.hatch_editor.is_some()
+                    || self.hatch_panel_picker_open()
                 {
                     return self.update(Message::PropHatchPatternNavigate(d as i8));
                 }
@@ -10418,6 +10427,11 @@ impl OpenCADStudio {
             }
 
             Message::PropHatchPatternNavigate(delta) => {
+                if self.hatch_panel_picker_open() {
+                    return self.on_hatch_panel(
+                        crate::ui::window::hatch_panel::HatchPanelMsg::PatternNavigate(delta),
+                    );
+                }
                 if let Some(editor) = self.graphic_attributes.hatch_editor.as_mut() {
                     let len = crate::ui::properties::filtered_hatch_patterns(&editor.search).len();
                     if len > 0 {

@@ -3503,6 +3503,16 @@ mod degenerate_constraint_tests {
 }
 
 impl OpenCADStudio {
+    /// Whether the Hatch panel's pattern picker is open over a running
+    /// HATCH / GRADIENT (a picker left open when the command ended is not).
+    pub(in crate::app) fn hatch_panel_picker_open(&self) -> bool {
+        self.hatch_drafts.pattern_picker.is_some()
+            && self.tabs[self.active_tab]
+                .active_cmd
+                .as_ref()
+                .is_some_and(|command| command.hatch_settings().is_some())
+    }
+
     /// An edit in the Hatch panel: OK and Cancel end HATCH as Enter and Esc
     /// do; the rest change the running command's settings.
     pub(in crate::app) fn on_hatch_panel(
@@ -3552,7 +3562,71 @@ impl OpenCADStudio {
                     };
                 }
             }
+            M::PatternPickerToggle => {
+                if self.hatch_drafts.pattern_picker.take().is_some() {
+                    return Task::none();
+                }
+                let current = match &settings.fill {
+                    crate::modules::draw::draw::hatch::HatchFill::Pattern(name) => name.as_str(),
+                    _ => "",
+                };
+                let focus = crate::ui::properties::filtered_hatch_patterns("")
+                    .iter()
+                    .position(|entry| entry.name.eq_ignore_ascii_case(current))
+                    .unwrap_or(0);
+                self.hatch_drafts.pattern_picker =
+                    Some(crate::ui::window::hatch_panel::PatternPicker {
+                        search: String::new(),
+                        focus,
+                    });
+                return iced::widget::operation::focus(iced::widget::Id::new(
+                    crate::ui::window::hatch_panel::PATTERN_SEARCH_ID,
+                ));
+            }
+            M::PatternSearch(search) => {
+                if let Some(picker) = self.hatch_drafts.pattern_picker.as_mut() {
+                    picker.search = search;
+                    picker.focus = 0;
+                }
+                return Task::none();
+            }
+            M::PatternFocus(index) => {
+                if let Some(picker) = self.hatch_drafts.pattern_picker.as_mut() {
+                    if index < crate::ui::properties::filtered_hatch_patterns(&picker.search).len()
+                    {
+                        picker.focus = index;
+                    }
+                }
+                return Task::none();
+            }
+            M::PatternNavigate(delta) => {
+                if let Some(picker) = self.hatch_drafts.pattern_picker.as_mut() {
+                    let len = crate::ui::properties::filtered_hatch_patterns(&picker.search).len();
+                    if len > 0 {
+                        picker.focus = (picker.focus as isize + delta as isize)
+                            .rem_euclid(len as isize)
+                            as usize;
+                    }
+                }
+                return Task::none();
+            }
+            M::PatternConfirm => {
+                let name = self
+                    .hatch_drafts
+                    .pattern_picker
+                    .as_ref()
+                    .and_then(|picker| {
+                        crate::ui::properties::filtered_hatch_patterns(&picker.search)
+                            .get(picker.focus)
+                            .map(|entry| entry.name.clone())
+                    });
+                return match name {
+                    Some(name) => self.on_hatch_panel(M::Pattern(name)),
+                    None => Task::none(),
+                };
+            }
             M::Pattern(name) => {
+                self.hatch_drafts.pattern_picker = None;
                 settings.fill = if name.eq_ignore_ascii_case("SOLID") {
                     crate::modules::draw::draw::hatch::HatchFill::Solid
                 } else {
@@ -3664,6 +3738,12 @@ impl OpenCADStudio {
             }
             M::DrawOrder(order) => settings.draw_order = order.min(4),
             M::Annotative(on) => settings.annotative = on,
+        }
+        if !matches!(
+            settings.fill,
+            crate::modules::draw::draw::hatch::HatchFill::Pattern(_)
+        ) {
+            self.hatch_drafts.pattern_picker = None;
         }
         if let Some(command) = self.tabs[i].active_cmd.as_mut() {
             command.set_hatch_settings(settings);
