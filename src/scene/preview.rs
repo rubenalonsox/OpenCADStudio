@@ -52,6 +52,28 @@ impl Scene {
         self.preview_hatches = std::sync::Arc::new(models);
     }
 
+    /// How a hatch draws with `edited` in place of its entity: the colour,
+    /// line weight and background the resident fill would get. HATCHEDIT
+    /// shows it over the hidden original while the Hatch panel is changed.
+    pub fn hatch_edit_preview_model(
+        &self,
+        edited: &document::entities::Hatch,
+    ) -> Option<HatchModel> {
+        let entity = EntityType::Hatch(Box::new(edited.clone()));
+        let hatch_bg = if self.current_layout != "Model" {
+            self.paper_bg_color
+        } else {
+            self.bg_color
+        };
+        let mut style =
+            crate::scene::view::render::render_style_for_viewport(&self.document, &entity, None);
+        style.0 = crate::scene::view::render::adapt_to_bg(style.0, hatch_bg);
+        let mut model = Self::hatch_model_from_dxf(edited, style.0)?;
+        model.aci = style.4;
+        model.line_weight_px = style.3;
+        Some(model)
+    }
+
     /// Selected Model-space hatches use a small overlay instead of baking the
     /// selection colour into the resident hatch list. This keeps selection
     /// changes from regenerating and uploading every hatch in a large drawing.

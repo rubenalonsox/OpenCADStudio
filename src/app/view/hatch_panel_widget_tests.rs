@@ -135,6 +135,36 @@ fn the_type_list_switches_a_new_hatch_to_user_defined() {
     assert_eq!(kind(&app), 3, "Type is User defined");
 }
 
+/// Scale and Angle typed in the panel after a boundary is picked redraw the
+/// hatch preview in the drawing.
+#[test]
+fn panel_scale_and_angle_update_the_drawing_preview() {
+    use crate::ui::window::hatch_panel::HatchPanelMsg as H;
+    let _guard = crate::headless_ui_lock();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let _ = app.automation_op(r#"{"op":"run","cmd":"RECTANG 0,0 10,5"}"#);
+    let i = app.active_tab;
+    let _ = app.dispatch_command("HATCH");
+    let _ = app.update(Message::HatchPanel(H::Kind(2)));
+    let _ = app.feed_command(crate::command::StepInput::Point(glam::DVec3::new(5.0, 2.5, 0.0)));
+    let preview = |app: &OpenCADStudio| {
+        let models = &app.tabs[i].scene.preview_hatches;
+        assert_eq!(models.len(), 1, "one hatch preview after the pick");
+        (models[0].scale, models[0].angle_offset.to_degrees())
+    };
+    let (scale, _) = preview(&app);
+    assert!((scale - 1.0).abs() < 1e-5, "scale {scale}");
+
+    let _ = app.update(Message::HatchPanel(H::Scale("3".into())));
+    let (scale, _) = preview(&app);
+    assert!((scale - 3.0).abs() < 1e-5, "scale after typing 3: {scale}");
+
+    let _ = app.update(Message::HatchPanel(H::Angle("45".into())));
+    let (_, angle) = preview(&app);
+    assert!((angle - 45.0).abs() < 1e-3, "angle after typing 45: {angle}");
+}
+
 /// A solid hatch over (0,0)–(10,10), selected, with HATCHEDIT started on it.
 fn editing_hatch() -> (OpenCADStudio, document::Handle) {
     use document::entities::{BoundaryEdge, BoundaryPath, Hatch, PolylineEdge};
@@ -214,6 +244,71 @@ fn hatchedit_panel_ok_changes_the_hatch_type() {
     let _ = app.update(Message::Undo);
     let hatch = the_hatch(&app, handle);
     assert!(hatch.is_solid, "one undo brings the solid fill back");
+}
+
+/// In HATCHEDIT, a panel edit shows at once in the drawing: the edited
+/// hatch is drawn in place of the hidden original. Cancel brings the
+/// original back untouched; OK keeps the edit and drops the preview.
+#[test]
+fn hatchedit_panel_edits_show_live_in_the_drawing() {
+    use crate::ui::window::hatch_panel::HatchPanelMsg as H;
+    let _guard = crate::headless_ui_lock();
+    for accept in [false, true] {
+        let (mut app, handle) = editing_hatch();
+        let i = app.active_tab;
+        assert!(app.tabs[i].scene.preview_hatches.is_empty(), "no edit, no preview");
+
+        // The first line family as drawn: its spacing and direction, whether
+        // the model carries scale and angle itself or has them baked in.
+        let drawn = |app: &OpenCADStudio| {
+            let models = &app.tabs[i].scene.preview_hatches;
+            assert_eq!(models.len(), 1, "the edited hatch is previewed");
+            let crate::scene::model::hatch_model::HatchPattern::Pattern(families) =
+                &models[0].pattern
+            else {
+                panic!("a line pattern is previewed");
+            };
+            (
+                families[0].dy.abs() * models[0].scale,
+                families[0].angle_deg + models[0].angle_offset.to_degrees(),
+            )
+        };
+        let _ = app.update(Message::HatchPanel(H::Kind(2)));
+        let (spacing, angle) = drawn(&app);
+        let _ = app.update(Message::HatchPanel(H::Scale("3".into())));
+        let (scaled, _) = drawn(&app);
+        assert!(
+            (scaled / spacing - 3.0).abs() < 1e-3,
+            "scale 3 spaces the lines 3×: {spacing} → {scaled}"
+        );
+        let _ = app.update(Message::HatchPanel(H::Angle("45".into())));
+        let (_, turned) = drawn(&app);
+        assert!(
+            ((turned - angle).rem_euclid(180.0) - 45.0).abs() < 1e-3,
+            "angle 45 turns the lines: {angle} → {turned}"
+        );
+        assert!(
+            app.tabs[i].scene.command_preview_hidden().contains(&handle),
+            "the original is hidden under the preview"
+        );
+        assert!(the_hatch(&app, handle).is_solid, "nothing is written before OK");
+
+        let end = if accept { H::Accept } else { H::Cancel };
+        let _ = app.update(Message::HatchPanel(end));
+        assert!(app.tabs[i].active_cmd.is_none(), "HATCHEDIT ends");
+        assert!(app.tabs[i].scene.preview_hatches.is_empty(), "the preview goes");
+        assert!(
+            app.tabs[i].scene.command_preview_hidden().is_empty(),
+            "the hatch shows again"
+        );
+        let hatch = the_hatch(&app, handle);
+        if accept {
+            assert!(!hatch.is_solid);
+            assert!((hatch.pattern_scale - 3.0).abs() < 1e-9, "OK keeps the scale");
+        } else {
+            assert!(hatch.is_solid, "Cancel leaves the hatch as it was");
+        }
+    }
 }
 
 /// Cancel leaves the hatch as it was.

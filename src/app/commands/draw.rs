@@ -3668,6 +3668,7 @@ impl OpenCADStudio {
         if let Some(command) = self.tabs[i].active_cmd.as_mut() {
             command.set_hatch_settings(settings);
         }
+        self.refresh_hatch_edit_preview(i);
         self.refresh_area_preview(i);
         Task::none()
     }

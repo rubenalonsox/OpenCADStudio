@@ -8930,6 +8930,12 @@ impl Scene {
 
     /// Replace the command-owned source hide set and refresh only handles whose
     /// visibility changed. An empty slice restores every source on completion.
+    /// The handles the running command's preview hides.
+    #[cfg(test)]
+    pub(crate) fn command_preview_hidden(&self) -> &HashSet<Handle> {
+        &self.command_preview_hidden
+    }
+
     pub fn set_command_preview_hidden(&mut self, handles: &[Handle]) {
         let desired: HashSet<_> = handles.iter().copied().collect();
         if desired == self.command_preview_hidden {

@@ -3914,6 +3914,15 @@ pub trait CadCommand: Send {
         None
     }
 
+    /// HATCHEDIT's hatch as the panel edit would leave it, drawn in place of
+    /// the hatch until OK or Cancel; `None` when the edit changes nothing
+    /// drawn. The host builds it, since only the scene can style a fill.
+    fn set_hatch_live_preview(
+        &mut self,
+        _preview: Option<crate::scene::model::hatch_model::HatchModel>,
+    ) {
+    }
+
     /// The step draws a window that selects objects rather than placing
     /// geometry: no coordinate boxes at the cursor. Default `false`.
     fn selects_by_window(&self) -> bool {

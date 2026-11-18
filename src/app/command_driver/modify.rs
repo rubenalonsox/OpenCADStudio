@@ -790,6 +790,44 @@ impl OpenCADStudio {
         None
     }
 
+    /// HATCHEDIT's live preview: the hatch as OK would leave it, styled by
+    /// the scene and handed to the command, which draws it in place of the
+    /// hatch. Nothing is shown when the edit changes nothing yet.
+    pub(in crate::app) fn refresh_hatch_edit_preview(&mut self, i: usize) {
+        let Some((handle, before, after)) = self.tabs[i]
+            .active_cmd
+            .as_ref()
+            .and_then(|command| command.hatch_panel_edit())
+        else {
+            return;
+        };
+        let preview = (before != after)
+            .then(|| match self.tabs[i].scene.document.get_entity(handle) {
+                Some(document::EntityType::Hatch(hatch)) => Some((**hatch).clone()),
+                _ => None,
+            })
+            .flatten()
+            .and_then(|mut hatch| {
+                // A layer that does not exist is refused on OK; the preview
+                // keeps the hatch's own.
+                let layer = after.layer.clone().filter(|name| {
+                    before.layer.as_ref() != Some(name)
+                        && self.tabs[i].scene.document.layers.get(name).is_some()
+                });
+                edit_hatch_entity(&mut hatch, &before, &after, layer);
+                self.tabs[i].scene.hatch_edit_preview_model(&hatch)
+            });
+        if let Some(command) = self.tabs[i].active_cmd.as_mut() {
+            command.set_hatch_live_preview(preview);
+        }
+        let hidden = self.tabs[i]
+            .active_cmd
+            .as_ref()
+            .map(|command| command.preview_hidden_handles().to_vec())
+            .unwrap_or_default();
+        self.tabs[i].scene.set_command_preview_hidden(&hidden);
+    }
+
     /// OK on the Hatch panel during HATCHEDIT: what changed on the panel
     /// goes onto the hatch as one undo step, and HATCHEDIT ends.
     pub(in crate::app) fn apply_hatch_panel_edit(
@@ -832,23 +870,7 @@ impl OpenCADStudio {
             return;
         }
         self.push_undo_snapshot(i, "HATCHEDIT");
-        crate::entities::hatch::apply_panel_settings(&mut hatch, before, after);
-        if after.color != before.color {
-            hatch.common.color = after.color.unwrap_or(document::types::Color::ByLayer);
-            hatch.common.color_name = None;
-            hatch.common.color_book_handle = None;
-        }
-        if let Some(name) = layer {
-            hatch.common.layer = name;
-        }
-        if after.transparency != before.transparency {
-            hatch.common.transparency = match after.transparency {
-                Some(percent) => {
-                    document::types::Transparency::from_percent(f64::from(percent) / 100.0)
-                }
-                None => document::types::Transparency::ByLayer,
-            };
-        }
+        edit_hatch_entity(&mut hatch, before, after, layer);
         self.tabs[i]
             .scene
             .update_entity(document::EntityType::Hatch(hatch));
@@ -1105,5 +1127,31 @@ impl OpenCADStudio {
             self.command_line.push_info(&prompt);
         }
         Task::none()
+    }
+}
+
+/// The Hatch panel's changes on a hatch entity: its fill, scale, angle,
+/// origin and other hatch fields, then colour, `layer` (already checked to
+/// exist) and transparency. OK and HATCHEDIT's live preview both use it.
+fn edit_hatch_entity(
+    hatch: &mut document::entities::Hatch,
+    before: &crate::modules::draw::draw::hatch::HatchSettings,
+    after: &crate::modules::draw::draw::hatch::HatchSettings,
+    layer: Option<String>,
+) {
+    crate::entities::hatch::apply_panel_settings(hatch, before, after);
+    if after.color != before.color {
+        hatch.common.color = after.color.unwrap_or(document::types::Color::ByLayer);
+        hatch.common.color_name = None;
+        hatch.common.color_book_handle = None;
+    }
+    if let Some(name) = layer {
+        hatch.common.layer = name;
+    }
+    if after.transparency != before.transparency {
+        hatch.common.transparency = match after.transparency {
+            Some(percent) => document::types::Transparency::from_percent(f64::from(percent) / 100.0),
+            None => document::types::Transparency::ByLayer,
+        };
     }
 }

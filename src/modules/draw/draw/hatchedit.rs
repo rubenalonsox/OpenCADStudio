@@ -57,6 +57,10 @@ pub struct HatcheditCommand {
         crate::modules::draw::draw::hatch::HatchSettings,
         crate::modules::draw::draw::hatch::HatchSettings,
     )>,
+    /// The hatch as the panel edit would leave it, drawn in its place.
+    live_preview: Option<crate::scene::model::hatch_model::HatchModel>,
+    /// The edited hatch while `live_preview` stands in for it.
+    live_hidden: Vec<Handle>,
 }
 
 impl Default for HatcheditCommand {
@@ -93,6 +97,8 @@ impl HatcheditCommand {
             association_paths: Vec::new(),
             association_missed: false,
             panel: None,
+            live_preview: None,
+            live_hidden: Vec::new(),
         }
     }
 
@@ -134,6 +140,8 @@ impl HatcheditCommand {
             association_paths: Vec::new(),
             association_missed: false,
             panel: None,
+            live_preview: None,
+            live_hidden: Vec::new(),
         }
     }
 
@@ -293,6 +301,31 @@ impl CadCommand for HatcheditCommand {
         };
         let (before, after) = self.panel.as_ref()?;
         Some((*handle, before.clone(), after.clone()))
+    }
+
+    fn set_hatch_live_preview(
+        &mut self,
+        preview: Option<crate::scene::model::hatch_model::HatchModel>,
+    ) {
+        self.live_hidden = match (&self.step, &preview) {
+            (HatcheditStep::EditOptions { handle, .. }, Some(_)) => vec![*handle],
+            _ => Vec::new(),
+        };
+        self.live_preview = preview;
+    }
+
+    /// The panel's edit in place of the hatch, while the panel shows.
+    fn hatch_preview_models(&self) -> Option<Vec<crate::scene::model::hatch_model::HatchModel>> {
+        self.hatch_settings()?;
+        Some(self.live_preview.iter().cloned().collect())
+    }
+
+    fn preview_hidden_handles(&self) -> &[Handle] {
+        if self.hatch_settings().is_some() {
+            &self.live_hidden
+        } else {
+            &[]
+        }
     }
 
     fn prompt(&self) -> String {
